@@ -1,5 +1,36 @@
-import { Habit, HabitInstance, InterestType, TriggerType, User, ScheduleType, Task, Project, Priority } from '../types';
+import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import { Habit, HabitInstance, InterestType, TriggerType, User, ScheduleType, Task, Project } from '../types';
 import { formatDate } from '../utils';
+
+// --- DATABASE SCHEMA ---
+
+interface MyCoreDB extends DBSchema {
+  users: {
+    key: string;
+    value: User;
+    indexes: { 'by-email': string };
+  };
+  habits: {
+    key: string;
+    value: Habit;
+  };
+  instances: {
+    key: string;
+    value: HabitInstance;
+    indexes: { 'by-date': string; 'by-habit': string };
+  };
+  tasks: {
+    key: string;
+    value: Task;
+  };
+  projects: {
+    key: string;
+    value: Project;
+  };
+}
+
+const DB_NAME = 'mycore-db';
+const DB_VERSION = 1;
 
 // --- SEED DATA ---
 
@@ -55,42 +86,28 @@ const SUGGESTED_HABITS: Habit[] = [
   }
 ];
 
-// --- STORAGE KEY ---
-const DB_KEY = 'mycore_db_v1';
-
-interface DbSchema {
-  user: User | null;
-  habits: Habit[];
-  instances: Record<string, HabitInstance[]>; // Key is YYYY-MM-DD
-  tasks: Task[];
-  projects: Project[];
-}
-
 // --- SERVICE CLASS ---
 
 class MockDBService {
-  private data: DbSchema;
+  private dbPromise: Promise<IDBPDatabase<MyCoreDB>>;
+  private currentUserCache: User | null = null;
 
   constructor() {
-    const stored = localStorage.getItem(DB_KEY);
-    if (stored) {
-      this.data = JSON.parse(stored);
-      // Migration for old DBs
-      if (!this.data.tasks) this.data.tasks = [];
-      if (!this.data.projects) this.data.projects = [];
-    } else {
-      this.data = {
-        user: null,
-        habits: [],
-        instances: {},
-        tasks: [],
-        projects: []
-      };
-    }
-  }
+    this.dbPromise = openDB<MyCoreDB>(DB_NAME, DB_VERSION, {
+      upgrade(db) {
+        const userStore = db.createObjectStore('users', { keyPath: 'id' });
+        userStore.createIndex('by-email', 'email', { unique: true });
 
-  private save() {
-    localStorage.setItem(DB_KEY, JSON.stringify(this.data));
+        db.createObjectStore('habits', { keyPath: 'id' });
+        
+        const instStore = db.createObjectStore('instances', { keyPath: 'id' });
+        instStore.createIndex('by-date', 'date');
+        instStore.createIndex('by-habit', 'habitId');
+
+        db.createObjectStore('tasks', { keyPath: 'id' });
+        db.createObjectStore('projects', { keyPath: 'id' });
+      },
+    });
   }
 
   // --- SUGGESTION ENGINE ---
@@ -106,13 +123,26 @@ class MockDBService {
 
   // USER
   async getUser(): Promise<User | null> {
-    return this.data.user;
+    if (this.currentUserCache) return this.currentUserCache;
+    // For MVP, we'll try to get the first user if cache is empty
+    const db = await this.dbPromise;
+    const users = await db.getAll('users');
+    if (users.length > 0) {
+      this.currentUserCache = users[0];
+      return users[0];
+    }
+    return null;
   }
 
   async initUser(email: string, name: string): Promise<User> {
-    if (this.data.user && this.data.user.email === email) {
-        return this.data.user;
+    const db = await this.dbPromise;
+    const existing = await db.getFromIndex('users', 'by-email', email);
+    
+    if (existing) {
+        this.currentUserCache = existing;
+        return existing;
     }
+
     const newUser: User = {
       id: 'u_' + Math.random().toString(36).substr(2, 9),
       email,
@@ -121,12 +151,9 @@ class MockDBService {
       interests: [],
       settings: { locationEnabled: false, notificationsEnabled: false, screenTimeEnabled: false }
     };
-    this.data.user = newUser;
-    this.data.habits = [];
-    this.data.instances = {};
-    this.data.tasks = [];
-    this.data.projects = [];
-    this.save();
+    
+    await db.put('users', newUser);
+    this.currentUserCache = newUser;
     return newUser;
   }
 
@@ -136,35 +163,55 @@ class MockDBService {
     habits: Habit[], 
     permissions: { loc: boolean; notif: boolean; screen: boolean }
   ): Promise<void> {
-    if (this.data.user && this.data.user.id === userId) {
-        this.data.user.interests = interests;
-        this.data.user.onboarded = true;
-        this.data.user.settings = {
+    const db = await this.dbPromise;
+    const user = await db.get('users', userId);
+    
+    if (user) {
+        user.interests = interests;
+        user.onboarded = true;
+        user.settings = {
             locationEnabled: permissions.loc,
             notificationsEnabled: permissions.notif,
             screenTimeEnabled: permissions.screen
         };
-        this.data.habits = habits;
-        this.seedInstancesForWeek();
-        this.save();
+        await db.put('users', user);
+        this.currentUserCache = user;
+
+        // Save habits
+        const tx = db.transaction('habits', 'readwrite');
+        await Promise.all(habits.map(h => tx.store.put(h)));
+        await tx.done;
+
+        // Seed instances
+        await this.seedInstancesForWeek(habits);
     }
   }
 
   async updateUserSettings(settings: User['settings']): Promise<void> {
-    if (this.data.user) {
-      this.data.user.settings = settings;
-      this.save();
+    const user = await this.getUser();
+    if (user) {
+      const db = await this.dbPromise;
+      user.settings = settings;
+      await db.put('users', user);
+      this.currentUserCache = user;
     }
   }
 
   // HABITS
   async getHabits(): Promise<Habit[]> {
-    const habits = this.data.habits;
-    const allInstances = Object.values(this.data.instances).flat();
-    habits.forEach(h => {
-        const habitInstances = allInstances.filter(i => i.habitId === h.id);
-        this.calculateHabitStrength(h, habitInstances);
-    });
+    const db = await this.dbPromise;
+    const habits = await db.getAll('habits');
+    const instances = await db.getAll('instances');
+    
+    // Update streaks dynamically
+    for (const habit of habits) {
+        const habitInstances = instances.filter(i => i.habitId === habit.id);
+        const score = this.calculateHabitStrength(habit, habitInstances);
+        // Note: We update the object in memory returned, 
+        // ideally we should persist the streak back to DB if we want it stored,
+        // but calculating on read is safer for consistency.
+        habit.streak = habit.streak; // assigned inside calc
+    }
     return habits;
   }
 
@@ -192,23 +239,32 @@ class MockDBService {
     if (totalInstances === 0) return 0;
 
     const completionRate = (totalCompleted / totalInstances) * 100;
-    // We weight the streak contribution (capped at 21 days for max momentum bonus)
     const streakBonus = (Math.min(currentStreak, 21) / 21) * 100;
 
-    // Final score: 70% based on consistency (completion rate), 30% based on current momentum (streak)
     return Math.round((completionRate * 0.7) + (streakBonus * 0.3));
   }
 
   // INSTANCES
   async getInstancesForDate(dateStr: string): Promise<HabitInstance[]> {
-    if (!this.data.instances[dateStr]) {
-      this.data.instances[dateStr] = this.createInstancesForDay(dateStr);
-      this.save();
+    const db = await this.dbPromise;
+    let instances = await db.getAllFromIndex('instances', 'by-date', dateStr);
+    
+    if (instances.length === 0) {
+      // Lazy create
+      const habits = await db.getAll('habits');
+      if (habits.length > 0) {
+        instances = this.createInstancesForDay(dateStr, habits);
+        const tx = db.transaction('instances', 'readwrite');
+        await Promise.all(instances.map(i => tx.store.put(i)));
+        await tx.done;
+      }
     }
-    return this.data.instances[dateStr];
+    return instances;
   }
 
   async getWeekInstances(dates: string[]): Promise<HabitInstance[]> {
+    // Optimized: get all instances in one go if possible, but index range is tricky with non-consecutive string dates
+    // Simple loop is fine for IDB speed
     let all: HabitInstance[] = [];
     for (const date of dates) {
       const dayInstances = await this.getInstancesForDate(date);
@@ -218,88 +274,87 @@ class MockDBService {
   }
 
   async updateInstanceStatus(instanceId: string, completed: boolean, value?: number): Promise<void> {
-    await new Promise(resolve => setTimeout(resolve, 600)); 
-    let found = false;
-    for (const date in this.data.instances) {
-      const idx = this.data.instances[date].findIndex(i => i.id === instanceId);
-      if (idx !== -1) {
-        this.data.instances[date][idx].completed = completed;
-        if (completed) this.data.instances[date][idx].completedAt = new Date().toISOString();
-        if (value !== undefined) this.data.instances[date][idx].value = value;
-        found = true;
-        break;
-      }
+    const db = await this.dbPromise;
+    const instance = await db.get('instances', instanceId);
+    if (instance) {
+        instance.completed = completed;
+        if (completed) instance.completedAt = new Date().toISOString();
+        if (value !== undefined) instance.value = value;
+        await db.put('instances', instance);
     }
-    if (found) this.save();
   }
 
   // --- TASKS & PROJECTS ---
 
   async getTasks(): Promise<Task[]> {
-    return this.data.tasks || [];
+    const db = await this.dbPromise;
+    return db.getAll('tasks');
   }
 
   async addTask(task: Task): Promise<void> {
-    this.data.tasks.push(task);
+    const db = await this.dbPromise;
+    await db.put('tasks', task);
     if (task.projectId) {
       await this.updateProjectProgress(task.projectId);
     }
-    this.save();
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
-    const idx = this.data.tasks.findIndex(t => t.id === taskId);
-    if (idx !== -1) {
-      this.data.tasks[idx] = { ...this.data.tasks[idx], ...updates };
-      if (this.data.tasks[idx].projectId) {
-        await this.updateProjectProgress(this.data.tasks[idx].projectId!);
+    const db = await this.dbPromise;
+    const task = await db.get('tasks', taskId);
+    if (task) {
+      const updated = { ...task, ...updates };
+      await db.put('tasks', updated);
+      if (updated.projectId) {
+        await this.updateProjectProgress(updated.projectId);
       }
-      this.save();
     }
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    const task = this.data.tasks.find(t => t.id === taskId);
-    this.data.tasks = this.data.tasks.filter(t => t.id !== taskId);
+    const db = await this.dbPromise;
+    const task = await db.get('tasks', taskId);
+    await db.delete('tasks', taskId);
     if (task?.projectId) {
       await this.updateProjectProgress(task.projectId);
     }
-    this.save();
   }
 
   async getProjects(): Promise<Project[]> {
-    return this.data.projects || [];
+    const db = await this.dbPromise;
+    return db.getAll('projects');
   }
 
   async addProject(project: Project): Promise<void> {
-    this.data.projects.push(project);
-    this.save();
+    const db = await this.dbPromise;
+    await db.put('projects', project);
   }
 
   private async updateProjectProgress(projectId: string): Promise<void> {
-    const projectIdx = this.data.projects.findIndex(p => p.id === projectId);
-    if (projectIdx === -1) return;
-
-    const projectTasks = this.data.tasks.filter(t => t.projectId === projectId);
+    const db = await this.dbPromise;
+    const allTasks = await db.getAll('tasks');
+    const projectTasks = allTasks.filter(t => t.projectId === projectId);
+    
     const total = projectTasks.length;
     const completed = projectTasks.filter(t => t.completed).length;
-
     const progress = total === 0 ? 0 : Math.round((completed / total) * 100);
-    
-    this.data.projects[projectIdx].progress = progress;
-    if (progress === 100) this.data.projects[projectIdx].status = 'completed';
-    else if (this.data.projects[projectIdx].status === 'completed' && progress < 100) {
-      this.data.projects[projectIdx].status = 'active';
+
+    const project = await db.get('projects', projectId);
+    if (project) {
+        project.progress = progress;
+        if (progress === 100) project.status = 'completed';
+        else if (project.status === 'completed' && progress < 100) project.status = 'active';
+        await db.put('projects', project);
     }
   }
 
   // UTILS
-  private createInstancesForDay(dateStr: string): HabitInstance[] {
+  private createInstancesForDay(dateStr: string, habits: Habit[]): HabitInstance[] {
      const date = new Date(dateStr);
      const dayOfWeek = date.getDay(); // 0 = Sun, 6 = Sat
      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-     return this.data.habits
+     return habits
         .filter(h => {
             if (h.schedule === ScheduleType.DAILY) return true;
             if (h.schedule === ScheduleType.WEEKDAYS) return !isWeekend;
@@ -314,31 +369,46 @@ class MockDBService {
         }));
   }
 
-  private seedInstancesForWeek() {
+  private async seedInstancesForWeek(habits: Habit[]) {
+    const db = await this.dbPromise;
     const today = new Date();
+    
+    // Generate for last 2 weeks and next few days
     for (let i = -14; i <= 3; i++) {
       const d = new Date(today);
       d.setDate(d.getDate() + i);
       const dateStr = formatDate(d);
       const isPast = i < 0;
-      if (!this.data.instances[dateStr]) {
-        const instances = this.createInstancesForDay(dateStr);
+      
+      const existing = await db.getAllFromIndex('instances', 'by-date', dateStr);
+      if (existing.length === 0) {
+        const instances = this.createInstancesForDay(dateStr, habits);
         if (isPast) {
             instances.forEach(inst => {
+                // Simulate some past activity for demo
                 if (Math.random() > 0.3) {
                     inst.completed = true;
                     inst.completedAt = new Date().toISOString();
                 }
             });
         }
-        this.data.instances[dateStr] = instances;
+        const tx = db.transaction('instances', 'readwrite');
+        await Promise.all(instances.map(i => tx.store.put(i)));
+        await tx.done;
       }
     }
   }
 
   async reset() {
-    this.data = { user: null, habits: [], instances: {}, tasks: [], projects: [] };
-    this.save();
+    const db = await this.dbPromise;
+    const tx = db.transaction(['users', 'habits', 'instances', 'tasks', 'projects'], 'readwrite');
+    await tx.objectStore('users').clear();
+    await tx.objectStore('habits').clear();
+    await tx.objectStore('instances').clear();
+    await tx.objectStore('tasks').clear();
+    await tx.objectStore('projects').clear();
+    await tx.done;
+    this.currentUserCache = null;
   }
 }
 
