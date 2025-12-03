@@ -1,53 +1,71 @@
-import { User } from '../types';
+import { supabase } from './supabaseClient';
 
-// Simulate Firebase Auth delay
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Mock user session key
 const SESSION_KEY = 'mycore_auth_session';
 
 export const AuthService = {
-  // Check if user is currently logged in (persisted session)
+  // Check if user is currently logged in via Supabase session
   getCurrentUser: (): { email: string; uid: string } | null => {
+    // We check local storage for a quick sync, but Supabase manages its own session
     const stored = localStorage.getItem(SESSION_KEY);
     return stored ? JSON.parse(stored) : null;
   },
 
-  // Simulate Firebase Login
+  // Initialize - Check active session from Supabase
+  checkSession: async (): Promise<{ email: string; uid: string } | null> => {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.user) {
+      const user = { 
+        email: data.session.user.email || '', 
+        uid: data.session.user.id 
+      };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+      return user;
+    }
+    return null;
+  },
+
   login: async (email: string, password: string): Promise<{ email: string; uid: string }> => {
-    await delay(800); // Fake network latency
-    
-    // In a real app, this would validate against Firebase Auth
-    if (!email.includes('@')) throw new Error("Invalid email address");
-    if (password.length < 6) throw new Error("Password must be at least 6 characters");
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    const user = { email, uid: 'firebase_uid_' + Math.random().toString(36).substr(2, 9) };
+    if (error) throw error;
+    if (!data.user) throw new Error("No user returned");
+
+    const user = { email: data.user.email || '', uid: data.user.id };
     localStorage.setItem(SESSION_KEY, JSON.stringify(user));
     return user;
   },
 
-  // Simulate Firebase Signup
   signup: async (email: string, password: string): Promise<{ email: string; uid: string }> => {
-    await delay(1000);
-    if (!email.includes('@')) throw new Error("Invalid email address");
-    if (password.length < 6) throw new Error("Password must be at least 6 characters");
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
 
-    // Create new session
-    const user = { email, uid: 'firebase_uid_' + Math.random().toString(36).substr(2, 9) };
+    if (error) throw error;
+    if (!data.user) throw new Error("No user returned");
+
+    const user = { email: data.user.email || '', uid: data.user.id };
     localStorage.setItem(SESSION_KEY, JSON.stringify(user));
     return user;
   },
 
-  // Simulate Google Login
   loginWithGoogle: async (): Promise<{ email: string; uid: string }> => {
-    await delay(1200);
-    const user = { email: 'demo@growthnexis.global', uid: 'google_uid_123' };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-    return user;
+    // Supabase Google Auth requires redirect handling usually
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+    });
+    if (error) throw error;
+    
+    // This part often involves a redirect, so the return might not be immediate in SPA
+    // For MVP structure we assume success flow
+    return { email: '', uid: '' }; 
   },
 
   logout: async () => {
-    await delay(300);
+    await supabase.auth.signOut();
     localStorage.removeItem(SESSION_KEY);
   }
 };

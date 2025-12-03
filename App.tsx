@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import { User, Habit, HabitInstance, InterestType, Task, Project } from './types';
-import { db } from './services/mockDb';
+import { db } from './services/supabaseService'; // Using Supabase
 import { AuthService } from './services/auth';
 import { formatDate, getWeekDays } from './utils';
 import { NotificationService } from './services/notificationService';
@@ -34,7 +34,6 @@ interface AppContextType {
   resetApp: () => Promise<void>;
   isAuthenticated: boolean;
   handleLoginSuccess: (email: string, name: string) => void;
-  // Task Helpers
   addTask: (task: Task) => Promise<void>;
   toggleTask: (taskId: string, completed: boolean) => Promise<void>;
   addProject: (project: Project) => Promise<void>;
@@ -64,17 +63,21 @@ export default function App() {
 
   // Check Auth Status on Mount
   useEffect(() => {
-    const authUser = AuthService.getCurrentUser();
-    if (authUser) {
-      setIsAuthenticated(true);
-      loadUserProfile(authUser.email);
-    } else {
-      setIsLoading(false);
+    const initAuth = async () => {
+        const authUser = await AuthService.checkSession();
+        if (authUser) {
+            setIsAuthenticated(true);
+            loadUserProfile(authUser.email);
+        } else {
+            setIsLoading(false);
+        }
     }
+    initAuth();
   }, []);
 
   const loadUserProfile = async (email: string, name: string = 'User') => {
     setIsLoading(true);
+    // For Supabase, initUser will either create or fetch existing profile linked to Auth ID
     const u = await db.initUser(email, name);
     setUser(u);
     if (u && u.onboarded) {
@@ -135,7 +138,6 @@ export default function App() {
         setRemindersSent(true);
       };
 
-      // Delay check slightly
       const timer = setTimeout(checkReminders, 3000);
       return () => clearTimeout(timer);
     }
@@ -207,7 +209,6 @@ export default function App() {
 
   const toggleTask = async (taskId: string, completed: boolean) => {
     await db.updateTask(taskId, { completed });
-    // Optimistic UI update could be added here for speed, but refetching ensures project progress is synced
     await refreshData();
   };
 
@@ -224,8 +225,8 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="h-screen w-full flex items-center justify-center bg-slate-50 text-navy-900">
-        <Loader2 className="w-10 h-10 animate-spin text-navy-800" />
+      <div className="h-screen w-full flex items-center justify-center bg-[#F5F5F7]">
+        <Loader2 className="w-10 h-10 animate-spin text-ios-text opacity-50" />
       </div>
     );
   }
@@ -244,34 +245,33 @@ export default function App() {
       ) : !user?.onboarded ? (
         <Onboarding />
       ) : (
-        <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-navy-100">
+        <div className="min-h-screen flex flex-col bg-ios-bg text-ios-text font-sans selection:bg-ios-blue selection:text-white">
           
-          {/* HEADER */}
-          <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200">
-            <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+          {/* HEADER (Glass) */}
+          <header className="fixed top-0 inset-x-0 z-40 glass h-14 transition-all duration-300">
+            <div className="max-w-5xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between">
+              <div className="flex items-center gap-2 group cursor-pointer" onClick={() => setActiveTab('dashboard')}>
                 <img 
                   src="/logo.png" 
                   alt="Growth Nexis Global" 
-                  className="w-10 h-10 object-contain drop-shadow-sm" 
+                  className="w-8 h-8 object-contain transition-transform group-hover:scale-105" 
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';
                     e.currentTarget.nextElementSibling?.classList.remove('hidden');
                   }}
                 />
-                <div className="hidden w-10 h-10 bg-navy-900 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-glow">
+                <div className="hidden w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white font-bold text-xs">
                   GN
                 </div>
-                <div>
-                   <span className="font-semibold tracking-tight text-navy-900 text-lg block leading-none">myCORE</span>
-                   <span className="text-[10px] text-slate-400 font-medium tracking-wide">by Growth Nexis Global</span>
+                <div className="flex flex-col justify-center">
+                   <span className="font-semibold tracking-tight text-ios-text text-sm leading-none">myCORE</span>
                 </div>
               </div>
               
-              <nav className="hidden md:flex gap-1 bg-slate-100 p-1 rounded-full">
+              <nav className="hidden md:flex gap-1">
                 {[
                   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-                  { id: 'tasks', label: 'Tasks & Projects', icon: CheckSquare },
+                  { id: 'tasks', label: 'Tasks', icon: CheckSquare },
                   { id: 'interests', label: 'Interests', icon: Compass },
                   { id: 'analytics', label: 'Analytics', icon: BarChart2 },
                   { id: 'settings', label: 'Settings', icon: Settings },
@@ -279,26 +279,29 @@ export default function App() {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
+                    className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-2 ${
                       activeTab === tab.id 
-                        ? 'bg-white text-navy-900 shadow-sm' 
-                        : 'text-slate-500 hover:text-slate-700'
+                        ? 'bg-black text-white shadow-sm' 
+                        : 'text-ios-subtext hover:text-ios-text hover:bg-white/50'
                     }`}
                   >
-                    <tab.icon size={16} />
+                    <tab.icon size={14} />
                     {tab.label}
                   </button>
                 ))}
               </nav>
 
-              <button onClick={() => setActiveTab('settings')} className="md:hidden p-2 text-slate-600">
+              <button onClick={() => setActiveTab('settings')} className="md:hidden p-2 text-ios-text">
                   <Settings size={20} />
               </button>
             </div>
           </header>
 
+          {/* Spacer for fixed header */}
+          <div className="h-14" />
+
           {/* MAIN CONTENT */}
-          <main className="flex-1 max-w-6xl mx-auto w-full p-4 md:p-6 pb-24 md:pb-12">
+          <main className="flex-1 max-w-5xl mx-auto w-full p-4 md:p-8 pb-32 md:pb-12 animate-fade-in">
             {activeTab === 'dashboard' && <Dashboard />}
             {activeTab === 'tasks' && <TasksPage />}
             {activeTab === 'interests' && <Interests />}
@@ -306,35 +309,38 @@ export default function App() {
             {activeTab === 'settings' && <SettingsPage />}
           </main>
 
-          {/* MOBILE NAV */}
-          <div className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 px-6 py-3 flex justify-between z-40 pb-6">
-             {[
-               { id: 'dashboard', icon: LayoutDashboard },
-               { id: 'tasks', icon: CheckSquare },
-               { id: 'interests', icon: Compass },
-               { id: 'analytics', icon: BarChart2 },
-             ].map(tab => (
-               <button 
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`p-2 rounded-xl transition-colors ${activeTab === tab.id ? 'bg-navy-50 text-navy-900' : 'text-slate-400'}`}
-               >
-                  <tab.icon size={24} />
-               </button>
-             ))}
+          {/* MOBILE NAV (Floating Dock) */}
+          <div className="md:hidden fixed bottom-6 inset-x-6 z-40">
+            <div className="glass rounded-full shadow-apple-hover p-2 flex justify-between items-center bg-white/80">
+               {[
+                 { id: 'dashboard', icon: LayoutDashboard },
+                 { id: 'tasks', icon: CheckSquare },
+                 { id: 'interests', icon: Compass },
+                 { id: 'analytics', icon: BarChart2 },
+               ].map(tab => (
+                 <button 
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`p-3 rounded-full transition-all duration-300 relative ${
+                      activeTab === tab.id 
+                        ? 'text-white bg-black shadow-md scale-105' 
+                        : 'text-ios-subtext hover:bg-gray-100'
+                    }`}
+                 >
+                    <tab.icon size={20} strokeWidth={2} />
+                 </button>
+               ))}
+            </div>
           </div>
 
           {/* FOOTER */}
-          <footer className="hidden md:block py-8 text-center border-t border-slate-200 mt-auto bg-white">
-            <div className="flex items-center justify-center gap-2 mb-2 opacity-50 grayscale hover:grayscale-0 transition-all">
-               <img src="/logo.png" alt="GNG" className="h-6 w-auto" />
-               <span className="font-bold text-navy-900 text-sm">Growth Nexis Global</span>
+          <footer className="hidden md:block py-8 text-center mt-auto">
+            <div className="flex items-center justify-center gap-2 mb-2 opacity-40 grayscale hover:grayscale-0 transition-all duration-500">
+               <img src="/logo.png" alt="GNG" className="h-5 w-auto" />
+               <span className="font-semibold text-ios-text text-xs">Growth Nexis Global</span>
             </div>
-            <p className="text-slate-400 text-sm font-light">
-              &copy; 2024 All Rights Reserved.
-            </p>
-            <p className="text-navy-900/60 text-xs mt-1 italic font-medium">
-              “...Unlocking Limitless Potential. Delivering Global Impact.”
+            <p className="text-ios-subtext text-[10px] font-medium tracking-wide">
+              Unlocking Limitless Potential. Delivering Global Impact.
             </p>
           </footer>
         </div>
