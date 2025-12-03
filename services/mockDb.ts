@@ -1,36 +1,5 @@
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { Habit, HabitInstance, InterestType, TriggerType, User, ScheduleType, Task, Project } from '../types';
 import { formatDate } from '../utils';
-
-// --- DATABASE SCHEMA ---
-
-interface MyCoreDB extends DBSchema {
-  users: {
-    key: string;
-    value: User;
-    indexes: { 'by-email': string };
-  };
-  habits: {
-    key: string;
-    value: Habit;
-  };
-  instances: {
-    key: string;
-    value: HabitInstance;
-    indexes: { 'by-date': string; 'by-habit': string };
-  };
-  tasks: {
-    key: string;
-    value: Task;
-  };
-  projects: {
-    key: string;
-    value: Project;
-  };
-}
-
-const DB_NAME = 'mycore-db';
-const DB_VERSION = 1;
 
 // --- SEED DATA ---
 
@@ -89,25 +58,21 @@ const SUGGESTED_HABITS: Habit[] = [
 // --- SERVICE CLASS ---
 
 class MockDBService {
-  private dbPromise: Promise<IDBPDatabase<MyCoreDB>>;
   private currentUserCache: User | null = null;
+  private readonly KEYS = {
+    USER: 'mycore_user',
+    HABITS: 'mycore_habits',
+    INSTANCES: 'mycore_instances',
+    TASKS: 'mycore_tasks',
+    PROJECTS: 'mycore_projects'
+  };
 
   constructor() {
-    this.dbPromise = openDB<MyCoreDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        const userStore = db.createObjectStore('users', { keyPath: 'id' });
-        userStore.createIndex('by-email', 'email', { unique: true });
-
-        db.createObjectStore('habits', { keyPath: 'id' });
-        
-        const instStore = db.createObjectStore('instances', { keyPath: 'id' });
-        instStore.createIndex('by-date', 'date');
-        instStore.createIndex('by-habit', 'habitId');
-
-        db.createObjectStore('tasks', { keyPath: 'id' });
-        db.createObjectStore('projects', { keyPath: 'id' });
-      },
-    });
+    // Initialize if empty
+    if (!localStorage.getItem(this.KEYS.HABITS)) {
+        // No global seed needed for localStorage as it is user specific usually, 
+        // but for this demo we just wait for user creation.
+    }
   }
 
   // --- SUGGESTION ENGINE ---
@@ -124,25 +89,27 @@ class MockDBService {
   // USER
   async getUser(): Promise<User | null> {
     if (this.currentUserCache) return this.currentUserCache;
-    // For MVP, we'll try to get the first user if cache is empty
-    const db = await this.dbPromise;
-    const users = await db.getAll('users');
-    if (users.length > 0) {
-      this.currentUserCache = users[0];
-      return users[0];
+    
+    const stored = localStorage.getItem(this.KEYS.USER);
+    if (stored) {
+      this.currentUserCache = JSON.parse(stored);
+      return this.currentUserCache;
     }
     return null;
   }
 
   async initUser(email: string, name: string): Promise<User> {
-    const db = await this.dbPromise;
-    const existing = await db.getFromIndex('users', 'by-email', email);
-    
-    if (existing) {
-        this.currentUserCache = existing;
-        return existing;
+    // Check if exists in local storage
+    const stored = localStorage.getItem(this.KEYS.USER);
+    if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.email === email) {
+            this.currentUserCache = parsed;
+            return parsed;
+        }
     }
 
+    // Create new
     const newUser: User = {
       id: 'u_' + Math.random().toString(36).substr(2, 9),
       email,
@@ -152,7 +119,13 @@ class MockDBService {
       settings: { locationEnabled: false, notificationsEnabled: false, screenTimeEnabled: false }
     };
     
-    await db.put('users', newUser);
+    localStorage.setItem(this.KEYS.USER, JSON.stringify(newUser));
+    // Clear other data for fresh user
+    localStorage.removeItem(this.KEYS.HABITS);
+    localStorage.removeItem(this.KEYS.INSTANCES);
+    localStorage.removeItem(this.KEYS.TASKS);
+    localStorage.removeItem(this.KEYS.PROJECTS);
+
     this.currentUserCache = newUser;
     return newUser;
   }
@@ -163,10 +136,9 @@ class MockDBService {
     habits: Habit[], 
     permissions: { loc: boolean; notif: boolean; screen: boolean }
   ): Promise<void> {
-    const db = await this.dbPromise;
-    const user = await db.get('users', userId);
+    const user = await this.getUser();
     
-    if (user) {
+    if (user && user.id === userId) {
         user.interests = interests;
         user.onboarded = true;
         user.settings = {
@@ -174,13 +146,11 @@ class MockDBService {
             notificationsEnabled: permissions.notif,
             screenTimeEnabled: permissions.screen
         };
-        await db.put('users', user);
+        localStorage.setItem(this.KEYS.USER, JSON.stringify(user));
         this.currentUserCache = user;
 
         // Save habits
-        const tx = db.transaction('habits', 'readwrite');
-        await Promise.all(habits.map(h => tx.store.put(h)));
-        await tx.done;
+        localStorage.setItem(this.KEYS.HABITS, JSON.stringify(habits));
 
         // Seed instances
         await this.seedInstancesForWeek(habits);
@@ -190,27 +160,24 @@ class MockDBService {
   async updateUserSettings(settings: User['settings']): Promise<void> {
     const user = await this.getUser();
     if (user) {
-      const db = await this.dbPromise;
       user.settings = settings;
-      await db.put('users', user);
+      localStorage.setItem(this.KEYS.USER, JSON.stringify(user));
       this.currentUserCache = user;
     }
   }
 
   // HABITS
   async getHabits(): Promise<Habit[]> {
-    const db = await this.dbPromise;
-    const habits = await db.getAll('habits');
-    const instances = await db.getAll('instances');
+    const stored = localStorage.getItem(this.KEYS.HABITS);
+    const habits: Habit[] = stored ? JSON.parse(stored) : [];
     
+    const storedInst = localStorage.getItem(this.KEYS.INSTANCES);
+    const instances: HabitInstance[] = storedInst ? JSON.parse(storedInst) : [];
+
     // Update streaks dynamically
     for (const habit of habits) {
         const habitInstances = instances.filter(i => i.habitId === habit.id);
-        const score = this.calculateHabitStrength(habit, habitInstances);
-        // Note: We update the object in memory returned, 
-        // ideally we should persist the streak back to DB if we want it stored,
-        // but calculating on read is safer for consistency.
-        habit.streak = habit.streak; // assigned inside calc
+        this.calculateHabitStrength(habit, habitInstances);
     }
     return habits;
   }
@@ -246,65 +213,91 @@ class MockDBService {
 
   // INSTANCES
   async getInstancesForDate(dateStr: string): Promise<HabitInstance[]> {
-    const db = await this.dbPromise;
-    let instances = await db.getAllFromIndex('instances', 'by-date', dateStr);
+    const stored = localStorage.getItem(this.KEYS.INSTANCES);
+    let allInstances: HabitInstance[] = stored ? JSON.parse(stored) : [];
     
-    if (instances.length === 0) {
+    let dayInstances = allInstances.filter(i => i.date === dateStr);
+    
+    if (dayInstances.length === 0) {
       // Lazy create
-      const habits = await db.getAll('habits');
+      const habits = await this.getHabits();
       if (habits.length > 0) {
-        instances = this.createInstancesForDay(dateStr, habits);
-        const tx = db.transaction('instances', 'readwrite');
-        await Promise.all(instances.map(i => tx.store.put(i)));
-        await tx.done;
+        dayInstances = this.createInstancesForDay(dateStr, habits);
+        allInstances = [...allInstances, ...dayInstances];
+        localStorage.setItem(this.KEYS.INSTANCES, JSON.stringify(allInstances));
       }
     }
-    return instances;
+    return dayInstances;
   }
 
   async getWeekInstances(dates: string[]): Promise<HabitInstance[]> {
-    // Optimized: get all instances in one go if possible, but index range is tricky with non-consecutive string dates
-    // Simple loop is fine for IDB speed
-    let all: HabitInstance[] = [];
-    for (const date of dates) {
-      const dayInstances = await this.getInstancesForDate(date);
-      all = [...all, ...dayInstances];
+    const stored = localStorage.getItem(this.KEYS.INSTANCES);
+    let allInstances: HabitInstance[] = stored ? JSON.parse(stored) : [];
+    let weekInstances: HabitInstance[] = [];
+
+    // Ensure all days exist
+    let hasChanges = false;
+    const habits = await this.getHabits();
+
+    if (habits.length > 0) {
+        for (const date of dates) {
+            const dayInst = allInstances.filter(i => i.date === date);
+            if (dayInst.length === 0) {
+                const created = this.createInstancesForDay(date, habits);
+                allInstances = [...allInstances, ...created];
+                weekInstances = [...weekInstances, ...created];
+                hasChanges = true;
+            } else {
+                weekInstances = [...weekInstances, ...dayInst];
+            }
+        }
     }
-    return all;
+    
+    if (hasChanges) {
+        localStorage.setItem(this.KEYS.INSTANCES, JSON.stringify(allInstances));
+    }
+
+    return weekInstances;
   }
 
   async updateInstanceStatus(instanceId: string, completed: boolean, value?: number): Promise<void> {
-    const db = await this.dbPromise;
-    const instance = await db.get('instances', instanceId);
-    if (instance) {
-        instance.completed = completed;
-        if (completed) instance.completedAt = new Date().toISOString();
-        if (value !== undefined) instance.value = value;
-        await db.put('instances', instance);
+    const stored = localStorage.getItem(this.KEYS.INSTANCES);
+    if (!stored) return;
+
+    const instances: HabitInstance[] = JSON.parse(stored);
+    const idx = instances.findIndex(i => i.id === instanceId);
+    
+    if (idx !== -1) {
+        instances[idx].completed = completed;
+        if (completed) instances[idx].completedAt = new Date().toISOString();
+        if (value !== undefined) instances[idx].value = value;
+        localStorage.setItem(this.KEYS.INSTANCES, JSON.stringify(instances));
     }
   }
 
   // --- TASKS & PROJECTS ---
 
   async getTasks(): Promise<Task[]> {
-    const db = await this.dbPromise;
-    return db.getAll('tasks');
+    const stored = localStorage.getItem(this.KEYS.TASKS);
+    return stored ? JSON.parse(stored) : [];
   }
 
   async addTask(task: Task): Promise<void> {
-    const db = await this.dbPromise;
-    await db.put('tasks', task);
+    const tasks = await this.getTasks();
+    tasks.push(task);
+    localStorage.setItem(this.KEYS.TASKS, JSON.stringify(tasks));
     if (task.projectId) {
       await this.updateProjectProgress(task.projectId);
     }
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
-    const db = await this.dbPromise;
-    const task = await db.get('tasks', taskId);
-    if (task) {
-      const updated = { ...task, ...updates };
-      await db.put('tasks', updated);
+    const tasks = await this.getTasks();
+    const idx = tasks.findIndex(t => t.id === taskId);
+    if (idx !== -1) {
+      const updated = { ...tasks[idx], ...updates };
+      tasks[idx] = updated;
+      localStorage.setItem(this.KEYS.TASKS, JSON.stringify(tasks));
       if (updated.projectId) {
         await this.updateProjectProgress(updated.projectId);
       }
@@ -312,39 +305,41 @@ class MockDBService {
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    const db = await this.dbPromise;
-    const task = await db.get('tasks', taskId);
-    await db.delete('tasks', taskId);
+    const tasks = await this.getTasks();
+    const task = tasks.find(t => t.id === taskId);
+    const filtered = tasks.filter(t => t.id !== taskId);
+    localStorage.setItem(this.KEYS.TASKS, JSON.stringify(filtered));
     if (task?.projectId) {
       await this.updateProjectProgress(task.projectId);
     }
   }
 
   async getProjects(): Promise<Project[]> {
-    const db = await this.dbPromise;
-    return db.getAll('projects');
+    const stored = localStorage.getItem(this.KEYS.PROJECTS);
+    return stored ? JSON.parse(stored) : [];
   }
 
   async addProject(project: Project): Promise<void> {
-    const db = await this.dbPromise;
-    await db.put('projects', project);
+    const projects = await this.getProjects();
+    projects.push(project);
+    localStorage.setItem(this.KEYS.PROJECTS, JSON.stringify(projects));
   }
 
   private async updateProjectProgress(projectId: string): Promise<void> {
-    const db = await this.dbPromise;
-    const allTasks = await db.getAll('tasks');
-    const projectTasks = allTasks.filter(t => t.projectId === projectId);
+    const tasks = await this.getTasks();
+    const projectTasks = tasks.filter(t => t.projectId === projectId);
     
     const total = projectTasks.length;
     const completed = projectTasks.filter(t => t.completed).length;
     const progress = total === 0 ? 0 : Math.round((completed / total) * 100);
 
-    const project = await db.get('projects', projectId);
-    if (project) {
-        project.progress = progress;
-        if (progress === 100) project.status = 'completed';
-        else if (project.status === 'completed' && progress < 100) project.status = 'active';
-        await db.put('projects', project);
+    const projects = await this.getProjects();
+    const idx = projects.findIndex(p => p.id === projectId);
+    if (idx !== -1) {
+        projects[idx].progress = progress;
+        if (progress === 100) projects[idx].status = 'completed';
+        else if (projects[idx].status === 'completed' && progress < 100) projects[idx].status = 'active';
+        localStorage.setItem(this.KEYS.PROJECTS, JSON.stringify(projects));
     }
   }
 
@@ -370,7 +365,9 @@ class MockDBService {
   }
 
   private async seedInstancesForWeek(habits: Habit[]) {
-    const db = await this.dbPromise;
+    const stored = localStorage.getItem(this.KEYS.INSTANCES);
+    let allInstances: HabitInstance[] = stored ? JSON.parse(stored) : [];
+    
     const today = new Date();
     
     // Generate for last 2 weeks and next few days
@@ -380,7 +377,7 @@ class MockDBService {
       const dateStr = formatDate(d);
       const isPast = i < 0;
       
-      const existing = await db.getAllFromIndex('instances', 'by-date', dateStr);
+      const existing = allInstances.filter(inst => inst.date === dateStr);
       if (existing.length === 0) {
         const instances = this.createInstancesForDay(dateStr, habits);
         if (isPast) {
@@ -392,22 +389,14 @@ class MockDBService {
                 }
             });
         }
-        const tx = db.transaction('instances', 'readwrite');
-        await Promise.all(instances.map(i => tx.store.put(i)));
-        await tx.done;
+        allInstances = [...allInstances, ...instances];
       }
     }
+    localStorage.setItem(this.KEYS.INSTANCES, JSON.stringify(allInstances));
   }
 
   async reset() {
-    const db = await this.dbPromise;
-    const tx = db.transaction(['users', 'habits', 'instances', 'tasks', 'projects'], 'readwrite');
-    await tx.objectStore('users').clear();
-    await tx.objectStore('habits').clear();
-    await tx.objectStore('instances').clear();
-    await tx.objectStore('tasks').clear();
-    await tx.objectStore('projects').clear();
-    await tx.done;
+    localStorage.clear();
     this.currentUserCache = null;
   }
 }
