@@ -1,53 +1,48 @@
-import { User } from '../types';
-
-// Mock Session for demo purposes
-const SESSION_KEY = 'mycore_session';
+import { supabase } from './supabase';
 
 export const AuthService = {
   getSession: async () => {
-    const session = localStorage.getItem(SESSION_KEY);
-    return session ? JSON.parse(session) : null;
+    if (!supabase) return null;
+    const { data } = await supabase.auth.getSession();
+    return data.session;
   },
 
   login: async (email: string, password: string) => {
-    // Simulate API call
-    return new Promise<{ user: any }>((resolve, reject) => {
-      setTimeout(() => {
-        if (email.includes('@')) {
-          const user = { email, id: 'user_123', user_metadata: { name: email.split('@')[0] } };
-          localStorage.setItem(SESSION_KEY, JSON.stringify({ user }));
-          resolve({ user });
-        } else {
-          reject(new Error("Invalid email"));
-        }
-      }, 1000);
+    if (!supabase) throw new Error("Supabase not configured");
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
+    if (error) throw error;
+    return data;
   },
 
   signup: async (email: string, password: string) => {
-    // Simulate API call
-    return new Promise<{ user: any }>((resolve) => {
-      setTimeout(() => {
-        const user = { email, id: 'user_123', user_metadata: { name: email.split('@')[0] } };
-        localStorage.setItem(SESSION_KEY, JSON.stringify({ user }));
-        resolve({ user });
-      }, 1000);
+    if (!supabase) throw new Error("Supabase not configured");
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name: email.split('@')[0], // Default name
+        },
+      },
     });
+    if (error) throw error;
+    return data;
   },
 
   loginWithGoogle: async () => {
-     return new Promise<{ user: any; email: string }>((resolve) => {
-        setTimeout(() => {
-            const email = "demo@growthnexis.global";
-            const user = { email, id: 'user_google_123', user_metadata: { name: "Demo User" } };
-            localStorage.setItem(SESSION_KEY, JSON.stringify({ user }));
-            resolve({ user, email });
-        }, 1500);
+     if (!supabase) throw new Error("Supabase not configured");
+     const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
      });
+     if (error) throw error;
+     return data;
   },
 
   logout: async () => {
-    localStorage.removeItem(SESSION_KEY);
-    return Promise.resolve();
+    if (!supabase) return;
+    await supabase.auth.signOut();
   }
 };
