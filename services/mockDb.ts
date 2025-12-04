@@ -1,17 +1,15 @@
 import { Habit, HabitInstance, InterestType, TriggerType, User, ScheduleType, Task, Project } from '../types';
 import { formatDate } from '../utils';
-import { supabase } from './supabase';
 
-// --- SUPABASE DATABASE SERVICE ---
-// Note: We keep the class name 'MockDBService' and export 'db' to maintain compatibility with existing imports.
-// In a refactor, this should be renamed to 'DatabaseService'.
+// --- MOCK DATABASE SERVICE ---
+// Simulates a backend with LocalStorage persistence
 
 class MockDBService {
   private currentUserCache: User | null = null;
 
   constructor() {}
 
-  // --- SUGGESTION ENGINE (Client-side logic remains helpful) ---
+  // --- SUGGESTION ENGINE ---
   getSuggestions(interests: InterestType[]): Habit[] {
     const SUGGESTED_HABITS: Habit[] = [
         { id: 'h1', name: 'Morning Run (Gym)', icon: 'Activity', interest: InterestType.HEALTH, schedule: ScheduleType.DAILY, triggerType: TriggerType.LOCATION, triggerConfig: { locationName: 'Gold\'s Gym' }, streak: 0 },
@@ -33,40 +31,20 @@ class MockDBService {
   // --- USER ---
 
   async getUser(): Promise<User | null> {
-    if (!supabase) return null;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-
-    const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-    if (error && error.code !== 'PGRST116') {
-        console.error("Error fetching profile:", error);
-        return null;
-    }
-
-    if (profile) {
-        this.currentUserCache = profile as User;
-        return profile as User;
+    const json = localStorage.getItem('mycore_user');
+    if (json) {
+        this.currentUserCache = JSON.parse(json);
+        return this.currentUserCache;
     }
     return null;
   }
 
   async initUser(email: string, name: string): Promise<User> {
-    if (!supabase) throw new Error("Supabase not configured");
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("No authenticated user");
-
-    // Try to get existing
     const existing = await this.getUser();
     if (existing) return existing;
 
-    // Create New Profile
     const newUser: User = {
-      id: user.id,
+      id: 'u_' + Date.now(),
       email,
       name,
       onboarded: false,
@@ -74,12 +52,7 @@ class MockDBService {
       settings: { locationEnabled: false, notificationsEnabled: false, screenTimeEnabled: false }
     };
 
-    const { error } = await supabase
-        .from('profiles')
-        .upsert(newUser);
-        
-    if (error) throw error;
-    
+    localStorage.setItem('mycore_user', JSON.stringify(newUser));
     this.currentUserCache = newUser;
     return newUser;
   }
@@ -90,84 +63,45 @@ class MockDBService {
     habits: Habit[], 
     permissions: { loc: boolean; notif: boolean; screen: boolean }
   ): Promise<void> {
-    if (!supabase) return;
+    const user = await this.getUser();
+    if (!user) return;
 
-    // 1. Update User
-    const updates = {
-        onboarded: true,
-        interests,
-        settings: {
-            locationEnabled: permissions.loc,
-            notificationsEnabled: permissions.notif,
-            screenTimeEnabled: permissions.screen
-        }
+    user.onboarded = true;
+    user.interests = interests;
+    user.settings = {
+        locationEnabled: permissions.loc,
+        notificationsEnabled: permissions.notif,
+        screenTimeEnabled: permissions.screen
     };
-
-    const { error: userError } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', userId);
-
-    if (userError) throw userError;
-
-    // 2. Save Habits
-    // Ensure habits have the correct user_id (if we had a user_id column, but here we likely use RLS based on auth.uid())
-    // For simplicity, we assume RLS handles ownership.
-    const habitsToInsert = habits.map(h => ({
-        ...h,
-        user_id: userId,
-        // Ensure ID is unique or let DB handle it. If ID comes from suggestion engine (e.g. 'h1'), 
-        // we should generate a new UUID or unique string to avoid conflicts if multiple users use same ID.
-        // However, for this MVP migration, let's prefix or rely on client generation.
-        id: h.id.startsWith('h') ? `${userId}_${h.id}_${Date.now()}` : h.id
-    }));
-
-    const { error: habitError } = await supabase
-        .from('habits')
-        .insert(habitsToInsert);
     
-    if (habitError) throw habitError;
-
-    // 3. Seed Instances (Client logic triggers generation, but we save to DB)
-    await this.seedInstancesForWeek(habitsToInsert);
+    localStorage.setItem('mycore_user', JSON.stringify(user));
+    localStorage.setItem('mycore_habits', JSON.stringify(habits));
+    
+    // Seed first week
+    await this.seedInstancesForWeek(habits);
   }
 
   async updateUserSettings(settings: User['settings']): Promise<void> {
-    if (!supabase || !this.currentUserCache) return;
-    
-    const { error } = await supabase
-        .from('profiles')
-        .update({ settings })
-        .eq('id', this.currentUserCache.id);
-        
-    if (error) throw error;
-    this.currentUserCache = { ...this.currentUserCache, settings };
+    if (this.currentUserCache) {
+        this.currentUserCache.settings = settings;
+        localStorage.setItem('mycore_user', JSON.stringify(this.currentUserCache));
+    }
   }
 
   // --- HABITS ---
 
   async getHabits(): Promise<Habit[]> {
-    if (!supabase) return [];
+    const json = localStorage.getItem('mycore_habits');
+    const habits: Habit[] = json ? JSON.parse(json) : [];
     
-    const { data, error } = await supabase
-        .from('habits')
-        .select('*');
-        
-    if (error) {
-        console.error("Error fetching habits", error);
-        return [];
-    }
-
-    const habits = data as Habit[];
-    
-    // Calculate streaks dynamically
     const instances = await this.getAllInstances();
-    
+
+    // Recalculate streaks dynamically
     for (const habit of habits) {
         const habitInstances = instances.filter(i => i.habitId === habit.id);
         this.calculateHabitStrength(habit, habitInstances);
     }
-    
+
     return habits;
   }
 
@@ -180,6 +114,7 @@ class MockDBService {
         if (inst.completed) {
             currentStreak++;
         } else {
+             // Allow skipping today if not done yet, but break if yesterday was missed
              if (inst.date === todayStr) continue;
              break; 
         }
@@ -190,33 +125,16 @@ class MockDBService {
   // --- INSTANCES ---
 
   private async getAllInstances(): Promise<HabitInstance[]> {
-    if (!supabase) return [];
-    // Limit to recent history to avoid fetching everything forever?
-    // For MVP, fetch all (or last 30 days)
-    const { data, error } = await supabase
-        .from('habit_instances')
-        .select('*');
-        
-    return error ? [] : data as HabitInstance[];
+    const json = localStorage.getItem('mycore_instances');
+    return json ? JSON.parse(json) : [];
   }
 
   async getWeekInstances(dates: string[]): Promise<HabitInstance[]> {
-    if (!supabase) return [];
-
-    // Fetch existing instances for these dates
-    const { data: existing, error } = await supabase
-        .from('habit_instances')
-        .select('*')
-        .in('date', dates);
-        
-    if (error) return [];
-    
-    const allInstances = existing as HabitInstance[];
+    const allInstances = await this.getAllInstances();
     const habits = await this.getHabits();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
-
-    let newInstances: any[] = [];
+    
+    let newInstances: HabitInstance[] = [];
+    let hasUpdates = false;
 
     // Check for missing instances and create them (Lazy Load)
     for (const date of dates) {
@@ -224,170 +142,95 @@ class MockDBService {
         for (const habit of dayHabits) {
              const exists = allInstances.find(i => i.habitId === habit.id && i.date === date);
              if (!exists) {
-                 newInstances.push({
+                 const newInst: HabitInstance = {
                      id: `${date}_${habit.id}`,
-                     habit_id: habit.id, // Maps to snake_case column if using simple auto-map, but let's stick to consistent naming
-                     habitId: habit.id, // We'll keep JS prop for app compatibility, but send both or transform
-                     user_id: user.id,
+                     habitId: habit.id,
                      date: date,
                      completed: false
-                 });
+                 };
+                 allInstances.push(newInst);
+                 hasUpdates = true;
              }
         }
     }
 
-    if (newInstances.length > 0) {
-        // Transform for DB insert (snake_case if needed, but we'll assume JSON column or matching names)
-        // Let's assume standard columns: id, habit_id, user_id, date, completed
-        const dbInserts = newInstances.map(i => ({
-            id: i.id,
-            habit_id: i.habitId,
-            user_id: i.user_id,
-            date: i.date,
-            completed: i.completed
-        }));
-
-        const { error: insertError } = await supabase
-            .from('habit_instances')
-            .upsert(dbInserts);
-            
-        if (!insertError) {
-             // Return combined list
-             // We need to map db 'habit_id' back to 'habitId' if fetching fresh
-             return [...allInstances, ...newInstances.map(i => ({ ...i, habitId: i.habitId }))];
-        }
+    if (hasUpdates) {
+        localStorage.setItem('mycore_instances', JSON.stringify(allInstances));
     }
 
-    return allInstances;
+    return allInstances.filter(i => dates.includes(i.date));
   }
 
   async updateInstanceStatus(instanceId: string, completed: boolean, value?: number): Promise<void> {
-    if (!supabase) return;
-    
-    const updates: any = { 
-        completed, 
-        completed_at: completed ? new Date().toISOString() : null
-    };
-    if (value !== undefined) updates.value = value;
-
-    await supabase
-        .from('habit_instances')
-        .update(updates)
-        .eq('id', instanceId);
+    const instances = await this.getAllInstances();
+    const idx = instances.findIndex(i => i.id === instanceId);
+    if (idx !== -1) {
+        instances[idx].completed = completed;
+        if (completed) instances[idx].completedAt = new Date().toISOString();
+        if (value !== undefined) instances[idx].value = value;
+        localStorage.setItem('mycore_instances', JSON.stringify(instances));
+    }
   }
 
   // --- TASKS & PROJECTS ---
 
   async getTasks(): Promise<Task[]> {
-    if (!supabase) return [];
-    const { data } = await supabase.from('tasks').select('*');
-    return (data || []).map((t: any) => ({
-        ...t,
-        projectId: t.project_id, // Map DB snake_case to JS camelCase
-        dueDate: t.due_date,
-        dueTime: t.due_time
-    }));
+    const json = localStorage.getItem('mycore_tasks');
+    return json ? JSON.parse(json) : [];
   }
 
   async addTask(task: Task): Promise<void> {
-    if (!supabase) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const dbTask = {
-        id: task.id,
-        user_id: user.id,
-        title: task.title,
-        description: task.description,
-        due_date: task.dueDate,
-        due_time: task.dueTime,
-        priority: task.priority,
-        category: task.category,
-        project_id: task.projectId,
-        completed: task.completed,
-        reminder: task.reminder
-    };
-
-    await supabase.from('tasks').insert(dbTask);
+    const tasks = await this.getTasks();
+    tasks.push(task);
+    localStorage.setItem('mycore_tasks', JSON.stringify(tasks));
     if (task.projectId) await this.updateProjectProgress(task.projectId);
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
-    if (!supabase) return;
-    
-    const dbUpdates: any = { ...updates };
-    if (updates.projectId) dbUpdates.project_id = updates.projectId;
-    if (updates.dueDate) dbUpdates.due_date = updates.dueDate;
-    if (updates.dueTime) dbUpdates.due_time = updates.dueTime;
-    
-    // Remove JS keys that don't match DB columns if necessary, or rely on Supabase ignoring extra fields if configured loose
-    delete dbUpdates.projectId; 
-    delete dbUpdates.dueDate;
-    delete dbUpdates.dueTime;
-
-    await supabase.from('tasks').update(dbUpdates).eq('id', taskId);
-    
-    // Check if we need to update project progress
-    // We fetch the task to get project_id if not in updates
-    if (updates.completed !== undefined) {
-         const { data } = await supabase.from('tasks').select('project_id').eq('id', taskId).single();
-         if (data?.project_id) await this.updateProjectProgress(data.project_id);
+    const tasks = await this.getTasks();
+    const idx = tasks.findIndex(t => t.id === taskId);
+    if (idx !== -1) {
+        tasks[idx] = { ...tasks[idx], ...updates };
+        localStorage.setItem('mycore_tasks', JSON.stringify(tasks));
+        if (tasks[idx].projectId) await this.updateProjectProgress(tasks[idx].projectId!);
     }
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    if (!supabase) return;
-    const { data } = await supabase.from('tasks').select('project_id').eq('id', taskId).single();
-    await supabase.from('tasks').delete().eq('id', taskId);
-    if (data?.project_id) await this.updateProjectProgress(data.project_id);
+    let tasks = await this.getTasks();
+    const task = tasks.find(t => t.id === taskId);
+    tasks = tasks.filter(t => t.id !== taskId);
+    localStorage.setItem('mycore_tasks', JSON.stringify(tasks));
+    if (task?.projectId) await this.updateProjectProgress(task.projectId);
   }
 
   async getProjects(): Promise<Project[]> {
-    if (!supabase) return [];
-    const { data } = await supabase.from('projects').select('*');
-    return (data || []).map((p: any) => ({
-        ...p,
-        startDate: p.start_date,
-        endDate: p.end_date
-    }));
+    const json = localStorage.getItem('mycore_projects');
+    return json ? JSON.parse(json) : [];
   }
 
   async addProject(project: Project): Promise<void> {
-    if (!supabase) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const dbProject = {
-        id: project.id,
-        user_id: user.id,
-        name: project.name,
-        description: project.description,
-        start_date: project.startDate,
-        end_date: project.endDate,
-        progress: project.progress,
-        status: project.status
-    };
-
-    await supabase.from('projects').insert(dbProject);
+    const projects = await this.getProjects();
+    projects.push(project);
+    localStorage.setItem('mycore_projects', JSON.stringify(projects));
   }
 
   private async updateProjectProgress(projectId: string): Promise<void> {
-    if (!supabase) return;
-
-    // Get all tasks for project
-    const { data: tasks } = await supabase.from('tasks').select('completed').eq('project_id', projectId);
+    const tasks = await this.getTasks();
+    const projectTasks = tasks.filter(t => t.projectId === projectId);
+    const total = projectTasks.length;
+    const completed = projectTasks.filter(t => t.completed).length;
     
-    if (!tasks) return;
-    
-    const total = tasks.length;
-    const completed = tasks.filter((t: any) => t.completed).length;
     const progress = total === 0 ? 0 : Math.round((completed / total) * 100);
     const status = progress === 100 ? 'completed' : 'active';
 
-    await supabase
-        .from('projects')
-        .update({ progress, status })
-        .eq('id', projectId);
+    const projects = await this.getProjects();
+    const idx = projects.findIndex(p => p.id === projectId);
+    if (idx !== -1) {
+        projects[idx].progress = progress;
+        projects[idx].status = status;
+        localStorage.setItem('mycore_projects', JSON.stringify(projects));
+    }
   }
 
   // --- HELPERS ---
@@ -406,12 +249,8 @@ class MockDBService {
   }
 
   private async seedInstancesForWeek(habits: Habit[]) {
-     if (!supabase) return;
-     const { data: { user } } = await supabase.auth.getUser();
-     if (!user) return;
-
      const today = new Date();
-     const instancesToInsert: any[] = [];
+     const instances: HabitInstance[] = [];
      
      // Generate for last 7 days and next 3 days
      for (let i = -7; i <= 3; i++) {
@@ -422,25 +261,19 @@ class MockDBService {
         const dayHabits = this.getHabitsForDay(dateStr, habits);
         
         for (const h of dayHabits) {
-            instancesToInsert.push({
+            instances.push({
                 id: `${dateStr}_${h.id}`,
-                habit_id: h.id,
-                user_id: user.id,
+                habitId: h.id,
                 date: dateStr,
                 completed: false
             });
         }
      }
-     
-     // Use Upsert to ignore duplicates
-     if (instancesToInsert.length > 0) {
-        await supabase.from('habit_instances').upsert(instancesToInsert);
-     }
+     localStorage.setItem('mycore_instances', JSON.stringify(instances));
   }
 
   async reset() {
-    // In real DB, we usually don't wipe data on logout.
-    // Just clear local cache.
+    localStorage.clear();
     this.currentUserCache = null;
   }
 }

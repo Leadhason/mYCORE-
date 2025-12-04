@@ -1,9 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+// Supabase has been removed.
+// This file is kept to avoid import errors if referenced, but exports null.
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-// Export client if keys are present, otherwise null (handles build time safety)
-export const supabase = (supabaseUrl && supabaseAnonKey) 
-  ? createClient(supabaseUrl, supabaseAnonKey) 
-  : null;
+export const supabase = null;

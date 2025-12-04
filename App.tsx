@@ -4,7 +4,6 @@ import { db } from './services/mockDb';
 import { AuthService } from './services/auth';
 import { formatDate, getWeekDays } from './utils';
 import { NotificationService } from './services/notificationService';
-import { supabase } from './services/supabase';
 
 // Icons
 import { LayoutDashboard, Compass, BarChart2, Settings, Loader2, CheckSquare } from 'lucide-react';
@@ -63,9 +62,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [remindersSent, setRemindersSent] = useState(false);
 
-  // Check Auth Status on Mount & Listen for Supabase Changes
+  // Check Auth Status on Mount
   useEffect(() => {
-    // Initial Session Check
     AuthService.getSession().then(session => {
         if (session && session.user) {
             setIsAuthenticated(true);
@@ -74,22 +72,6 @@ export default function App() {
             setIsLoading(false);
         }
     });
-
-    // Supabase Auth Listener
-    const { data: { subscription } } = supabase?.auth.onAuthStateChange((event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-            setIsAuthenticated(true);
-            loadUserProfile(session.user.email || '', session.user.user_metadata.name || 'User');
-        } else if (event === 'SIGNED_OUT') {
-            setIsAuthenticated(false);
-            setUser(null);
-            setIsLoading(false);
-        }
-    }) || { data: { subscription: { unsubscribe: () => {} } } };
-
-    return () => {
-        subscription.unsubscribe();
-    };
   }, []);
 
   const loadUserProfile = async (email: string, name: string) => {
@@ -107,7 +89,8 @@ export default function App() {
   };
 
   const handleLoginSuccess = async (email: string, name: string) => {
-    // Handled by onAuthStateChange listener usually, but kept for manual triggers if needed
+    setIsAuthenticated(true);
+    await loadUserProfile(email, name);
   };
 
   const refreshData = async () => {
@@ -130,7 +113,6 @@ export default function App() {
       const grouped: Record<string, HabitInstance[]> = {};
       weekDates.forEach(d => grouped[d] = []);
       instances.forEach(i => {
-        // Map snake_case to JS prop if necessary, currently handling in service
         const date = i.date; 
         if (grouped[date]) grouped[date].push(i);
       });
