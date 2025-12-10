@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
-import { useApp } from '../App';
-import { getWeekDays, formatDate, getDayName, calculateCompletion } from '../utils';
-import { HabitInstance, TriggerType } from '../types';
+import { useApp } from '../App.tsx';
+import { getWeekDays, formatDate, getDayName, calculateCompletion } from '../../utils.ts';
+import { HabitInstance, TriggerType } from '../../types.ts';
 import * as Icons from 'lucide-react';
 import HabitTriggerModal from './HabitTriggerModal';
 import { CheckSquare, ArrowRight, Plus, Calendar } from 'lucide-react';
@@ -260,7 +260,7 @@ export default function Dashboard() {
             </div>
         </div>
         <div className="flex justify-between items-center bg-white/50 backdrop-blur-xl p-2 rounded-[1.5rem] overflow-x-auto no-scrollbar shadow-inner-light">
-            {weekDays.map((d, i) => (
+            {weekDays.map((d: Date, i: number) => (
                 <DayCard 
                     key={i}
                     date={formatDate(d)}

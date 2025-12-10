@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { useApp } from '../App';
-import { Task, Project, Priority } from '../types';
-import { formatDate } from '../utils';
+import { useApp } from '../App.tsx';
+import { Task, Project, Priority } from '../../types.ts';
+import { formatDate } from '../../utils.ts';
 import { 
   Plus, Calendar as CalendarIcon, List, Clock, Briefcase, 
   Flag, ChevronLeft, ChevronRight, CheckCircle2, Trash2, CheckSquare, Bell

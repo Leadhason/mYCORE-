@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { useApp } from '../App';
-import { Project } from '../types';
-import { formatDate } from '../utils';
+import { useApp } from '../App.tsx';
+import { Project } from '../../types.ts';
+import { formatDate } from '../../utils.ts';
 import { X } from 'lucide-react';
 
 export default function AddProjectModal({ onClose }: { onClose: () => void }) {

@@ -1,4 +1,4 @@
-import { Habit, HabitInstance, TriggerType } from '../types';
+import { Habit, HabitInstance, TriggerType } from '../../types.ts';
 
 export const NotificationService = {
   async requestPermission(): Promise<boolean> {

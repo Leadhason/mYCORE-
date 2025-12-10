@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { useApp } from '../App';
-import { Task, Priority, ReminderType } from '../types';
-import { formatDate } from '../utils';
-import { X, Bell, ListCheck, Paperclip, Plus, Trash2 } from 'lucide-react';
+import { useApp } from '../App.tsx';
+import { Task, Priority, ReminderType } from '../../types.ts';
+import { formatDate } from '../../utils.ts';
+import { X, Bell, ListChecks, Paperclip, Plus, Trash2 } from 'lucide-react';
 
 export default function AddTaskModal({ onClose }: { onClose: () => void }) {
   const { addTask, projects } = useApp();
@@ -93,7 +93,7 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
                 value={formData.priority}
                 onChange={e => setFormData({...formData, priority: e.target.value as Priority})}
               >
-                {Object.values(Priority).map(p => <option key={p} value={p}>{p}</option>)}
+                {(Object.values(Priority) as Priority[]).map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
           </div>
@@ -124,7 +124,7 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
           {/* SUBTASKS SECTION */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
              <div className="flex items-center gap-2 mb-2">
-                <ListCheck size={14} className="text-navy-900" />
+                <ListChecks size={14} className="text-navy-900" />
                 <label className="text-xs font-bold text-slate-400 uppercase">Subtasks</label>
              </div>
              
@@ -186,7 +186,7 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
                     });
                 }}
              >
-                {Object.values(ReminderType).map(t => <option key={t} value={t}>{t}</option>)}
+                {(Object.values(ReminderType) as ReminderType[]).map(t => <option key={t} value={t}>{t}</option>)}
              </select>
 
              {formData.reminder?.type === ReminderType.CUSTOM && (

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { InterestType, Habit } from '../types';
-import { useApp } from '../App';
+import { InterestType, Habit } from '../../types.ts';
+import { useApp } from '../App.tsx';
 import { 
   Play, FileText, ArrowUpRight, Star, 
   TrendingUp, Activity, CheckCircle2, Lock, 

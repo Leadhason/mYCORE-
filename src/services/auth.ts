@@ -52,7 +52,7 @@ export const AuthService = {
     };
     
     localStorage.setItem('mycore_session', JSON.stringify(session));
-    return session.user;
+    return session;
   },
 
   logout: async () => {

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
-import { User, Habit, HabitInstance, InterestType, Task, Project } from './types';
-import { db } from './services/mockDb';
-import { AuthService } from './services/auth';
-import { formatDate, getWeekDays } from './utils';
-import { NotificationService } from './services/notificationService';
+import { User, Habit, HabitInstance, InterestType, Task, Project } from '../types.ts';
+import { db } from './services/mockDb.ts';
+import { AuthService } from './services/auth.ts';
+import { formatDate, getWeekDays } from '../utils.ts';
+import { NotificationService } from './services/notificationService.ts';
 
 // Icons
 import { LayoutDashboard, Compass, BarChart2, Settings, Loader2, CheckSquare } from 'lucide-react';
