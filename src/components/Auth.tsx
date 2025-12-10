@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AuthService } from '../services/auth';
+import { AuthService } from '../services/auth.ts';
 import { Loader2, ArrowRight } from 'lucide-react';
 
 interface AuthProps {
@@ -26,7 +26,7 @@ export default function Auth({ onSuccess }: AuthProps) {
         res = await AuthService.signup(email, password);
       }
       const name = email.split('@')[0];
-      onSuccess(res.email, name);
+      onSuccess(res.user?.email || email, name);
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
     } finally {
@@ -39,7 +39,7 @@ export default function Auth({ onSuccess }: AuthProps) {
     try {
       const res = await AuthService.loginWithGoogle();
       const name = "Demo User";
-      onSuccess(res.email, name);
+      onSuccess(res.user.email, name);
     } catch (err) {
       setError('Google Auth failed');
     } finally {

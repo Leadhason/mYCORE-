@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Habit, TriggerType } from '../types';
+import { Habit, TriggerType } from '../../types.ts';
 import { MapPin, Smartphone, Zap, CheckCircle2, Loader2, TrendingUp, Search } from 'lucide-react';
 
 interface Props {

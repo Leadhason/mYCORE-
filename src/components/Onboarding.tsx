@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { InterestType, Habit, TriggerType, ScheduleType } from '../types';
-import { useApp } from '../App';
+import { InterestType, Habit, TriggerType, ScheduleType } from '../../types.ts';
+import { useApp } from '../App.tsx';
 import { db } from '../services/mockDb';
 import { 
   Activity, BookOpen, DollarSign, Brain, Smartphone, 
@@ -42,7 +42,7 @@ export default function Onboarding() {
   const [isAddingInterest, setIsAddingInterest] = useState(false);
 
   const [finalHabits, setFinalHabits] = useState<Habit[]>([]);
-  const [permissions, setPermissions] = useState({ loc: false, notif: false, screen: false });
+  const [permissions, setPermissions] = useState<{loc: boolean, notif: boolean, screen: boolean}>({ loc: false, notif: false, screen: false });
   
   // Custom Habit Form
   const [isAddingCustom, setIsAddingCustom] = useState(false);
@@ -284,7 +284,7 @@ export default function Onboarding() {
                                 onChange={(e) => setCustomSchedule(e.target.value as ScheduleType)}
                                 className="h-10 px-2 rounded-xl bg-slate-50 text-xs font-medium outline-none"
                              >
-                                {Object.values(ScheduleType).map(t => <option key={t} value={t}>{t}</option>)}
+                                {(Object.values(ScheduleType) as ScheduleType[]).map(t => <option key={t} value={t}>{t}</option>)}
                              </select>
                         </div>
 
@@ -317,13 +317,13 @@ export default function Onboarding() {
 
             <div className="space-y-4">
               {[
-                { key: 'loc', label: 'Location', desc: 'Auto-complete Gym & Work habits', icon: MapPin, color: 'blue' },
-                { key: 'notif', label: 'Notifications', desc: 'Smart reminders & summaries', icon: Bell, color: 'purple' },
-                { key: 'screen', label: 'Screen Time', desc: 'Activity & Detox verification', icon: Smartphone, color: 'orange' }
-              ].map((perm: any) => (
+                { key: 'loc' as keyof typeof permissions, label: 'Location', desc: 'Auto-complete Gym & Work habits', icon: MapPin, color: 'blue' },
+                { key: 'notif' as keyof typeof permissions, label: 'Notifications', desc: 'Smart reminders & summaries', icon: Bell, color: 'purple' },
+                { key: 'screen' as keyof typeof permissions, label: 'Screen Time', desc: 'Activity & Detox verification', icon: Smartphone, color: 'orange' }
+              ].map((perm) => (
                   <div 
                     key={perm.key}
-                    onClick={() => setPermissions((p: any) => ({ ...p, [perm.key]: !p[perm.key] }))}
+                    onClick={() => setPermissions((p) => ({ ...p, [perm.key]: !p[perm.key] }))}
                     className={`
                         flex items-center gap-4 p-5 rounded-[1.5rem] border transition-all cursor-pointer group
                         ${permissions[perm.key] 

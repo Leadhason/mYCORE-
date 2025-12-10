@@ -1,7 +1,7 @@
 import React from 'react';
-import { useApp } from '../App';
+import { useApp } from '../App.tsx';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { getDayName } from '../utils';
+import { getDayName } from '../../utils.ts';
 
 export default function Analytics() {
   const { currentWeekInstances, habits } = useApp();

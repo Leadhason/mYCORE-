@@ -1,5 +1,5 @@
-import { Habit, HabitInstance, InterestType, TriggerType, User, ScheduleType, Task, Project } from '../types';
-import { formatDate } from '../utils';
+import { Habit, HabitInstance, InterestType, TriggerType, User, ScheduleType, Task, Project } from '../../types.ts';
+import { formatDate } from '../../utils.ts';
 
 // --- MOCK DATABASE SERVICE ---
 // Simulates a backend with LocalStorage persistence

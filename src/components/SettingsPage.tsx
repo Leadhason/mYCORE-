@@ -1,5 +1,5 @@
 import React from 'react';
-import { useApp } from '../App';
+import { useApp } from '../App.tsx';
 import { LogOut, Download, Trash2, ChevronRight, Shield } from 'lucide-react';
 
 export default function SettingsPage() {
