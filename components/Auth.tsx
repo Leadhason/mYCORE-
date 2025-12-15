@@ -26,7 +26,7 @@ export default function Auth({ onSuccess }: AuthProps) {
         res = await AuthService.signup(email, password);
       }
       const name = email.split('@')[0];
-      onSuccess(res.email, name);
+      onSuccess(res.user.email, name);
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
     } finally {

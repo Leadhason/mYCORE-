@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useApp } from '../App';
 import { Task, Priority, ReminderType } from '../types';
 import { formatDate } from '../utils';
-import { X, Bell, ListCheck, Paperclip, Plus, Trash2, Link } from 'lucide-react';
+import { X, Bell, ListChecks, Paperclip, Plus, Trash2, Link } from 'lucide-react';
 
 export default function AddTaskModal({ onClose }: { onClose: () => void }) {
   const { addTask, projects } = useApp();
@@ -125,7 +125,7 @@ export default function AddTaskModal({ onClose }: { onClose: () => void }) {
           {/* SUBTASKS SECTION */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
              <div className="flex items-center gap-2 mb-2">
-                <ListCheck size={14} className="text-navy-900" />
+                <ListChecks size={14} className="text-navy-900" />
                 <label className="text-xs font-bold text-slate-400 uppercase">Subtasks</label>
              </div>
              

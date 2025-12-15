@@ -3,7 +3,7 @@ import { useApp } from '../App';
 import { LogOut, Download, Trash2, ChevronRight, Shield } from 'lucide-react';
 
 export default function SettingsPage() {
-  const { user, resetApp, updateSettings } = useApp();
+  const { user, resetApp, updateSettings, theme, toggleTheme } = useApp();
 
   const handleExport = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(user));
@@ -54,6 +54,15 @@ export default function SettingsPage() {
                  <span className="font-medium text-slate-700">Notifications</span>
                  <div className={`w-10 h-6 rounded-full relative transition-colors ${user?.settings.notificationsEnabled ? 'bg-green-500' : 'bg-slate-300'}`}>
                     <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${user?.settings.notificationsEnabled ? 'right-1' : 'left-1'}`} />
+                 </div>
+            </button>
+            <button 
+                onClick={toggleTheme}
+                className="w-full flex items-center justify-between p-5 hover:bg-slate-50 border-b border-slate-100 transition-colors"
+            >
+                 <span className="font-medium text-slate-700">Dark Mode</span>
+                 <div className={`w-10 h-6 rounded-full relative transition-colors ${theme === 'dark' ? 'bg-navy-900' : 'bg-slate-300'}`}>
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${theme === 'dark' ? 'right-1' : 'left-1'}`} />
                  </div>
             </button>
              <button onClick={handleExport} className="w-full flex items-center justify-between p-5 hover:bg-slate-50 transition-colors">

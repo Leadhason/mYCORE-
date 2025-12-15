@@ -9,6 +9,8 @@ import {
   Dumbbell, Droplets, Moon, Sun, Monitor, Coffee, Music, Star, Zap, Target
 } from 'lucide-react';
 
+type PermissionKey = 'loc' | 'notif' | 'screen';
+
 const DEFAULT_INTERESTS = [
   { id: InterestType.HEALTH, icon: Activity, label: 'Health' },
   { id: InterestType.PRODUCTIVITY, icon: Brain, label: 'Productivity' },
@@ -377,13 +379,13 @@ export default function Onboarding() {
 
             <div className="space-y-4">
               {[
-                { key: 'loc', label: 'Location', desc: 'Auto-complete Gym & Work habits', icon: MapPin, color: 'blue' },
-                { key: 'notif', label: 'Notifications', desc: 'Smart reminders & summaries', icon: Bell, color: 'purple' },
-                { key: 'screen', label: 'Screen Time', desc: 'Activity & Detox verification', icon: Smartphone, color: 'orange' }
-              ].map((perm: any) => (
+                { key: 'loc' as PermissionKey, label: 'Location', desc: 'Auto-complete Gym & Work habits', icon: MapPin, color: 'blue' },
+                { key: 'notif' as PermissionKey, label: 'Notifications', desc: 'Smart reminders & summaries', icon: Bell, color: 'purple' },
+                { key: 'screen' as PermissionKey, label: 'Screen Time', desc: 'Activity & Detox verification', icon: Smartphone, color: 'orange' }
+              ].map((perm: { key: PermissionKey; label: string; desc: string; icon: any; color: string }) => (
                   <div 
                     key={perm.key}
-                    onClick={() => setPermissions((p: any) => ({ ...p, [perm.key]: !p[perm.key] }))}
+                    onClick={() => setPermissions((p: Record<PermissionKey, boolean>) => ({ ...p, [perm.key]: !p[perm.key] }))}
                     className={`
                         flex items-center gap-4 p-5 rounded-[1.5rem] border transition-all cursor-pointer group
                         ${permissions[perm.key] 
