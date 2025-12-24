@@ -121,7 +121,13 @@ create trigger on_auth_user_created
 ## IMPORTANT: Configuration Steps
 
 ### 1. Environment Variables
-Ensure you have created a `.env` file in your project root with the following keys from your Supabase Project Settings:
+Copy the `.env.example` file to create your own `.env` file in your project root:
+
+```bash
+cp .env.example .env
+```
+
+Then update it with your actual keys from your Supabase Project Settings:
 
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
