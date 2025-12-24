@@ -19,14 +19,15 @@ export default function Auth({ onSuccess }: AuthProps) {
     setError('');
 
     try {
-      let res;
+      let session;
       if (isLogin) {
-        res = await AuthService.login(email, password);
+        session = await AuthService.login(email, password);
       } else {
-        res = await AuthService.signup(email, password);
+        session = await AuthService.signup(email, password);
       }
-      const name = email.split('@')[0];
-      onSuccess(res.user.email, name);
+      const userEmail = session.user.email || email;
+      const userName = session.user.user_metadata?.name || email.split('@')[0];
+      onSuccess(userEmail, userName);
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
     } finally {
@@ -36,13 +37,12 @@ export default function Auth({ onSuccess }: AuthProps) {
 
   const handleGoogle = async () => {
     setLoading(true);
+    setError('');
     try {
-      const res = await AuthService.loginWithGoogle();
-      const name = "Demo User";
-      onSuccess(res.email, name);
-    } catch (err) {
-      setError('Google Auth failed');
-    } finally {
+      await AuthService.loginWithGoogle();
+      // OAuth will redirect - the auth state listener in App.tsx will handle the callback
+    } catch (err: any) {
+      setError(err.message || 'Google Auth failed');
       setLoading(false);
     }
   };

@@ -85,16 +85,40 @@ export default function App() {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
 
-  // Check Auth Status on Mount
+  // Check Auth Status on Mount and Listen to Auth Changes
   useEffect(() => {
-    AuthService.getSession().then(session => {
-        if (session && session.user) {
-            setIsAuthenticated(true);
-            loadUserProfile(session.user.email || '', session.user.user_metadata.name || 'User');
-        } else {
-            setIsLoading(false);
-        }
+    // Subscribe to auth state changes
+    const subscription = AuthService.onAuthStateChange((session) => {
+      if (session?.user) {
+        setIsAuthenticated(true);
+        loadUserProfile(
+          session.user.email || '',
+          session.user.user_metadata?.name || 'User'
+        );
+      } else {
+        setIsAuthenticated(false);
+        setUser(null);
+        setIsLoading(false);
+      }
     });
+
+    // Check initial session
+    AuthService.getSession().then(session => {
+      if (session?.user) {
+        setIsAuthenticated(true);
+        loadUserProfile(
+          session.user.email || '',
+          session.user.user_metadata?.name || 'User'
+        );
+      } else {
+        setIsLoading(false);
+      }
+    });
+
+    // Cleanup subscription on unmount
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const loadUserProfile = async (email: string, name: string) => {
